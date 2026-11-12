@@ -15,45 +15,104 @@
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body data-mode="piano">
 <div id="app">
   <header id="bar">
     <div class="grp">
+      <div class="seg" id="modeSeg" role="group" aria-label="模式">
+        <button type="button" data-v="piano" class="on">鋼琴</button>
+        <button type="button" data-v="mpc">MPC</button>
+      </div>
+    </div>
+    <div class="grp">
+      <button type="button" id="beatToggle" class="btn toggle" aria-pressed="false">鼓聲停止</button>
+    </div>
+    <div class="grp piano-only">
       <button id="octDown" class="btn" aria-label="降八度">◀</button>
       <span id="octLabel" class="lbl">C4</span>
       <button id="octUp" class="btn" aria-label="升八度">▶</button>
     </div>
-    <div class="grp">
+    <div class="grp piano-only">
       <span class="cap">範圍</span>
       <div class="seg" id="rangeSeg">
         <button data-v="1">1</button><button data-v="2">2</button><button data-v="3">3</button>
       </div>
       
     </div>
-    <div class="grp">
+    <div class="grp piano-only">
       <span class="cap">標示</span>
       <div class="seg" id="labelSeg">
         <button data-v="none">無</button><button data-v="abc">CDE</button><button data-v="solfege">Do Re</button>
       </div>
     </div>
-    <div class="grp">
+    <div class="grp piano-only">
       <span class="cap">回音</span>
       <div class="seg" id="reverbSeg">
         <button data-v="none">無回音</button><button data-v="short">短</button><button data-v="long">長</button>
       </div>
     </div>
-    <div class="grp">
+    <div class="grp piano-only">
       <button id="sustain" class="btn toggle" aria-pressed="false">延音</button>
     </div>
-    <div class="grp">
+    <div class="grp piano-only">
       <span class="cap">音量</span>
       <input id="vol" type="range" min="0" max="100" value="80" aria-label="音量">
     </div>
   </header>
-  <div id="chordBar"><span id="chordName"></span><span id="chordSub"></span></div>
-  <main id="kbWrap"><div id="keyboard"></div></main>
+  <div id="chordBar" class="piano-only"><span id="chordName"></span><span id="chordSub"></span></div>
+  <main id="kbWrap" class="piano-only"><div id="keyboard"></div></main>
+  <section id="mpc" aria-label="MPC">
+    <div id="mpcTop">
+      <div class="grp">
+        <span class="cap">速度</span>
+        <input id="bpm" type="range" min="40" max="240" value="96" aria-label="速度">
+        <span id="bpmLabel" class="lbl">96</span>
+      </div>
+      <div class="grp">
+        <span class="cap">套鼓</span>
+        <div class="seg" id="kitSeg" role="group" aria-label="套鼓"></div>
+      </div>
+      <button type="button" id="saveOpen" class="btn">存檔</button>
+    </div>
+    <div id="mpcEdit">
+      <button type="button" id="muteBtn" class="btn toggle" aria-pressed="false">靜音</button>
+      <div class="grp">
+        <span class="cap">音量</span>
+        <input id="trkVol" type="range" min="0" max="100" value="80" aria-label="音軌音量">
+      </div>
+      <select id="soundSel" aria-label="音色"></select>
+      <button type="button" id="delTrk" class="btn">刪音軌</button>
+    </div>
+    <div id="mpcMain">
+      <div id="trackCol">
+        <div id="trackScroll"></div>
+        <button type="button" id="addTrk" class="btn">加音軌</button>
+      </div>
+      <div id="padGrid"></div>
+    </div>
+    <div id="stepRow" role="group" aria-label="十六步"></div>
+  </section>
   <div id="rotate">請將手機橫放，彈起來更舒服 ↻</div>
 </div>
+<div id="saveSheet" hidden>
+  <div id="saveCard">
+    <h2>存檔</h2>
+    <p class="hint">存在這台 iPhone。匯出時會打開系統分享，請選「儲存到檔案」。音檔要點兩次：先製作，再分享。</p>
+    <div class="saveRow">
+      <input id="slotName" type="text" maxlength="40" enterkeyhint="done" autocomplete="off" autocorrect="off" autocapitalize="off" aria-label="專案名稱" placeholder="專案名稱">
+      <button type="button" id="slotSave" class="btn">存到此機</button>
+    </div>
+    <div id="slotList"></div>
+    <div class="saveRow">
+      <button type="button" id="exportJson" class="btn">匯出 JSON</button>
+      <button type="button" id="importJson" class="btn">匯入</button>
+      <button type="button" id="exportWav" class="btn">匯出音檔</button>
+      <input id="importFile" type="file" accept="application/json,.json,text/plain" hidden>
+    </div>
+    <button type="button" id="saveClose" class="btn">關閉</button>
+  </div>
+</div>
+<div id="toast" hidden></div>
 <div id="overlay">
   <div class="card">
     <h1>🎹 我的鋼琴</h1>
@@ -61,10 +120,14 @@
     <div class="prog"><div id="progBar"></div></div>
     <button id="start" class="big" disabled>點一下開始彈奏</button>
     <p class="hint">若沒有聲音：請確認 iPhone 側邊的<b>靜音開關</b>沒有開啟，並調高音量。<br>
-    在 Safari 按「分享 → 加入主畫面」即可像 App 一樣使用，離線也能彈。</p>
+    在 Safari 按「分享 → 加入主畫面」即可像 App 一樣使用，離線也能彈。<br>
+    可切換鋼琴 / MPC。節奏開著時，回到鋼琴也會繼續。</p>
   </div>
 </div>
 <script src="chord.js"></script>
+<script src="mpc-logic.js"></script>
+<script src="mpc-synth.js"></script>
 <script src="app.js"></script>
+<script src="mpc.js"></script>
 </body>
 </html>

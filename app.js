@@ -209,7 +209,10 @@
   var KEYMAP = 'awsedftgyhujkolp;\''.split('');
   var kbdDown = {};
   window.addEventListener('keydown', function (e) {
-    if (e.repeat || e.metaKey || e.ctrlKey) return;
+    if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+    var tag = e.target && e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (document.body.dataset.mode === 'mpc') return;
     var k = e.key.toLowerCase(), idx = KEYMAP.indexOf(k);
     if (idx >= 0 && !kbdDown[k]) { kbdDown[k] = lowMidi() + idx; press(kbdDown[k]); }
     else if (k === 'z') shiftOct(-1); else if (k === 'x') shiftOct(1);
@@ -218,7 +221,11 @@
   window.addEventListener('keyup', function (e) {
     var k = e.key.toLowerCase(); if (kbdDown[k] != null) { release(kbdDown[k]); delete kbdDown[k]; }
   });
-  window.addEventListener('blur', function () { Object.keys(held).forEach(function (m) { held[m] = 1; release(+m); }); touches = {}; ptrs = {}; kbdDown = {}; });
+  function releaseAll() {
+    Object.keys(held).forEach(function (m) { held[m] = 1; release(+m); });
+    touches = {}; ptrs = {}; kbdDown = {};
+  }
+  window.addEventListener('blur', releaseAll);
 
   // ---------- 和弦顯示 ----------
   var chordName = document.getElementById('chordName'), chordSub = document.getElementById('chordSub');
@@ -288,5 +295,5 @@
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(function (e) { console.warn('SW 註冊失敗', e); });
   }
-  window.__piano = { press: press, release: release, held: held, ctx: ctx, buffers: buffers };
+  window.__piano = { press: press, release: release, releaseAll: releaseAll, held: held, ctx: ctx, buffers: buffers, mode: 'piano' };
 })();
