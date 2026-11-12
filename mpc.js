@@ -51,6 +51,19 @@
   var trackScroll = document.getElementById('trackScroll');
   var padGrid = document.getElementById('padGrid');
   var stepRow = document.getElementById('stepRow');
+  var viewSeg = document.getElementById('viewSeg');
+  var pageGrp = document.getElementById('pageGrp');
+  var pagePrev = document.getElementById('pagePrev');
+  var pageNext = document.getElementById('pageNext');
+  var pageLabel = document.getElementById('pageLabel');
+  var followBtn = document.getElementById('followBtn');
+  var barsDown = document.getElementById('barsDown');
+  var barsUp = document.getElementById('barsUp');
+  var barsLabel = document.getElementById('barsLabel');
+  var viewSpan = 2;
+  var viewOrigin = 0;
+  var follow = true;
+  var paintDrag = null;
   var saveOpen = document.getElementById('saveOpen');
   var saveSheet = document.getElementById('saveSheet');
   var saveClose = document.getElementById('saveClose');
@@ -170,21 +183,54 @@
     }
   }
 
-  function revealStep(i) {
-    var el = stepRow.children[i];
-    if (!el) return;
-    var viewL = stepRow.scrollLeft;
-    var viewR = viewL + stepRow.clientWidth;
-    var left = el.offsetLeft;
-    var right = left + el.offsetWidth;
-    if (left < viewL) stepRow.scrollLeft = Math.max(0, left - 6);
-    else if (right > viewR) stepRow.scrollLeft = right - stepRow.clientWidth + 6;
+  function barLength() { return Logic.stepsPerBar(project.meter, project.resolution); }
+
+  function saveView() {
+    try {
+      localStorage.setItem('piano.mpc.view', JSON.stringify({ span: viewSpan, origin: viewOrigin, follow: follow }));
+    } catch (e) {}
+  }
+
+  function loadView() {
+    try {
+      var v = JSON.parse(localStorage.getItem('piano.mpc.view') || '{}');
+      if (v.span === 1 || v.span === 2) viewSpan = v.span;
+      if (v.origin >= 0) viewOrigin = v.origin | 0;
+      if (typeof v.follow === 'boolean') follow = v.follow;
+    } catch (e) {}
+  }
+
+  function clampView() {
+    if (!project || project.bars < 2) viewSpan = 1;
+    if (viewSpan !== 1 && viewSpan !== 2) viewSpan = 1;
+    var page = Math.floor(viewOrigin / viewSpan) * viewSpan;
+    if (page < 0) page = 0;
+    var maxStart = Math.max(0, project.bars - 1);
+    if (page > maxStart) page = Math.floor(maxStart / viewSpan) * viewSpan;
+    viewOrigin = page;
+  }
+
+  function shownBars() {
+    clampView();
+    return Math.max(1, Math.min(viewSpan, project.bars - viewOrigin));
   }
 
   function paintPlayhead() {
+    if (follow && transportOn && playhead >= 0 && project.bars > viewSpan) {
+      var len = barLength();
+      var bar = Math.floor(playhead / len);
+      if (bar < 0) bar = 0;
+      if (bar >= project.bars) bar = project.bars - 1;
+      var page = Math.floor(bar / viewSpan) * viewSpan;
+      if (page !== viewOrigin) {
+        viewOrigin = page;
+        saveView();
+        ensureSteps();
+        paintView();
+      }
+    }
     var buttons = stepRow.children;
-    for (var i = 0; i < buttons.length; i++) buttons[i].classList.toggle('now', i === playhead);
-    if (transportOn && playhead >= 0) revealStep(playhead);
+    for (var i = 0; i < buttons.length; i++) buttons[i].classList.toggle('now', +buttons[i].dataset.step === playhead);
   }
 
   function schedulePaint(step, time) {
@@ -249,6 +295,7 @@
     var buttons = modeSeg.querySelectorAll('button');
     for (var i = 0; i < buttons.length; i++) buttons[i].classList.toggle('on', buttons[i].dataset.v === mode);
     try { localStorage.setItem('piano.mode', mode); } catch (e) {}
+    if (mode === 'mpc') requestAnimationFrame(applyWidths);
   }
 
   function paintTracks() {
@@ -264,6 +311,8 @@
       sub.textContent = (Logic.KITS[t.kit] ? Logic.KITS[t.kit].name : '') + (t.mute ? ' · 靜音' : '');
       b.appendChild(nm);
       b.appendChild(sub);
+      var color = Logic.soundColor(t.kit, t.sound);
+      b.style.boxShadow = 'inset 5px 0 0 ' + color + (t.id === selectedId ? ', inset 0 0 0 2px #f4efe6' : '');
       trackScroll.appendChild(b);
     });
     addTrk.disabled = project.tracks.length >= Logic.MAX_TRACKS;
@@ -277,6 +326,9 @@
       var b = padGrid.children[i];
       b.textContent = sounds[i].name;
       b.setAttribute('aria-label', sounds[i].name);
+      var padColor = Logic.soundColor(kit, sounds[i].id);
+      b.style.background = padColor;
+      b.style.color = Logic.inkOn(padColor);
       var mine = !!(t && t.kit === kit && t.sound === sounds[i].id);
       b.classList.toggle('sel', mine);
     }
@@ -284,12 +336,15 @@
 
   function paintSteps() {
     var t = selected();
+    var color = t ? Logic.soundColor(t.kit, t.sound) : '';
     var buttons = stepRow.children;
     for (var i = 0; i < buttons.length; i++) {
-      var on = !!(t && t.steps[i] > 0);
+      var abs = +buttons[i].dataset.step;
+      var on = !!(t && t.steps[abs] > 0);
       buttons[i].classList.toggle('on', on);
-      buttons[i].classList.toggle('now', i === playhead);
+      buttons[i].classList.toggle('now', abs === playhead);
       buttons[i].disabled = !t;
+      buttons[i].style.background = on ? color : '';
       buttons[i].setAttribute('aria-pressed', on ? 'true' : 'false');
     }
   }
@@ -319,7 +374,33 @@
       });
       soundSel.dataset.kit = kit;
     }
-    if (t) soundSel.value = t.sound;
+    if (t) {
+      soundSel.value = t.sound;
+      soundSel.style.boxShadow = 'inset 6px 0 0 ' + Logic.soundColor(t.kit, t.sound);
+    } else soundSel.style.boxShadow = '';
+  }
+
+  function paintView() {
+    clampView();
+    var viewButtons = viewSeg.querySelectorAll('button');
+    for (var i = 0; i < viewButtons.length; i++) {
+      var v = +viewButtons[i].dataset.v;
+      viewButtons[i].classList.toggle('on', v === viewSpan);
+      viewButtons[i].disabled = v === 2 && project.bars < 2;
+    }
+    var shown = shownBars();
+    var first = viewOrigin + 1;
+    var last = viewOrigin + shown;
+    pageLabel.textContent = first === last ? ('第' + first + '小節') : ('第' + first + '–' + last + '小節');
+    var multi = project.bars > viewSpan;
+    pagePrev.disabled = !multi || viewOrigin <= 0;
+    pageNext.disabled = !multi || viewOrigin + viewSpan >= project.bars;
+    pageGrp.hidden = !multi;
+    followBtn.hidden = !multi;
+    followBtn.setAttribute('aria-pressed', follow ? 'true' : 'false');
+    barsLabel.textContent = String(project.bars);
+    barsDown.disabled = project.bars <= 1;
+    barsUp.disabled = project.bars >= Logic.BARS_MAX;
   }
 
   function paintMeter() {
@@ -337,6 +418,7 @@
     paintEdit();
     paintKit();
     paintMeter();
+    paintView();
     bpm.value = String(project.bpm);
     bpmLabel.textContent = String(project.bpm);
   }
@@ -425,11 +507,34 @@
     }
   }
 
+  function applyWidths() {
+    var width = stepRow.clientWidth;
+    var n = stepRow.children.length;
+    if (width < 2 || !n) return;
+    var shown = shownBars();
+    var plan = Logic.layoutSteps(width, n, shown);
+    var len = n / shown;
+    for (var i = 0; i < n; i++) {
+      var el = stepRow.children[i];
+      var px = plan.widths[i] || 1;
+      el.style.width = px + 'px';
+      el.style.flex = '0 0 ' + px + 'px';
+      var startOfBar = shown > 1 && i === len;
+      var endOfBar = ((i + 1) % len) === 0;
+      el.style.marginLeft = startOfBar ? plan.barGap + 'px' : '0';
+      el.style.marginRight = endOfBar ? '0' : plan.gap + 'px';
+    }
+  }
+
   function ensureSteps() {
-    var n = Logic.stepCount(project);
-    var key = project.meter + ':' + project.resolution + ':' + n;
+    clampView();
+    var len = barLength();
+    var shown = shownBars();
+    var n = len * shown;
+    var key = [project.meter, project.resolution, project.bars, viewSpan, viewOrigin, n].join(':');
     if (stepRow.dataset.key === key && stepRow.children.length === n) {
       paintSteps();
+      applyWidths();
       return;
     }
     var starts = Logic.beatStarts(project.meter, project.resolution);
@@ -441,16 +546,25 @@
     });
     stepRow.innerHTML = '';
     stepRow.dataset.key = key;
+    var offset = viewOrigin * len;
     for (var i = 0; i < n; i++) {
+      var rel = i % len;
+      var abs = offset + i;
       var b = document.createElement('button');
       b.type = 'button';
-      b.className = 'step' + (mark[i] ? ' ' + mark[i] : '');
-      b.dataset.step = String(i);
-      b.setAttribute('aria-label', beatNo[i] ? ('第 ' + beatNo[i] + ' 拍') : ('第 ' + (i + 1) + ' 步'));
+      var cls = 'step';
+      if (mark[rel] === 'downbeat') cls += ' downbeat';
+      else if (mark[rel]) cls += ' beat';
+      if (shown > 1 && i === len) cls += ' barline';
+      b.className = cls;
+      b.dataset.step = String(abs);
+      var barNo = viewOrigin + Math.floor(i / len) + 1;
+      b.setAttribute('aria-label', '第' + barNo + '小節 ' + (beatNo[rel] ? ('第' + beatNo[rel] + '拍') : ('第' + (rel + 1) + '步')));
       stepRow.appendChild(b);
     }
-    stepRow.setAttribute('aria-label', project.meter + '，' + project.resolution + '分音符');
+    stepRow.setAttribute('aria-label', '循環 ' + project.bars + ' 小節，正在顯示 ' + shown + ' 小節');
     paintSteps();
+    applyWidths();
   }
 
   function applyGrid(meter, res) {
@@ -574,7 +688,7 @@
   function renderWav(proj) {
     var OC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
     if (!OC) return Promise.reject(new Error('no offline'));
-    var bars = 4;
+    var bars = 2;
     var nSteps = Logic.stepCount(proj);
     var step = Logic.stepSeconds(proj.bpm, proj.resolution);
     var total = step * nSteps * bars + 1;
@@ -627,6 +741,7 @@
     meterSel.appendChild(o);
   });
   prewarm();
+  loadView();
   paint();
   paintTransport();
 
@@ -717,15 +832,110 @@
     selectedId = b.dataset.track;
     paint();
   });
-  stepRow.addEventListener('click', function (e) {
-    var b = e.target.closest('button');
-    if (!b) return;
+  function stepAt(x, y) {
+    var el = document.elementFromPoint(x, y);
+    el = el && el.closest ? el.closest('.step') : null;
+    if (!el || !stepRow.contains(el)) return null;
+    return +el.dataset.step;
+  }
+  function paintAbs(abs, value) {
     var t = selected();
-    if (!t) return;
-    Logic.toggleStep(project, t.id, +b.dataset.step);
+    if (!t || abs == null || abs < 0 || abs >= t.steps.length) return;
+    var cur = t.steps[abs] > 0 ? 1 : 0;
+    if (cur === value) return;
+    t.steps[abs] = value;
+    var el = stepRow.querySelector('.step[data-step="' + abs + '"]');
+    if (el) {
+      el.classList.toggle('on', value > 0);
+      el.style.background = value > 0 ? Logic.soundColor(t.kit, t.sound) : '';
+      el.setAttribute('aria-pressed', value ? 'true' : 'false');
+    }
     changed();
-    paintSteps();
+  }
+  function beginPaint(abs) {
+    var t = selected();
+    if (!t || abs == null) return;
+    paintDrag = { value: t.steps[abs] > 0 ? 0 : 1 };
+    paintAbs(abs, paintDrag.value);
+  }
+  function movePaint(abs) {
+    if (!paintDrag) return;
+    paintAbs(abs, paintDrag.value);
+  }
+  function endPaint() { paintDrag = null; }
+  function onStepTouch(e) {
+    e.preventDefault();
+    var list = e.changedTouches;
+    for (var i = 0; i < list.length; i++) {
+      var tch = list[i];
+      var abs = stepAt(tch.clientX, tch.clientY);
+      if (e.type === 'touchstart') beginPaint(abs);
+      else if (e.type === 'touchmove') movePaint(abs);
+      else endPaint();
+    }
+  }
+  stepRow.addEventListener('touchstart', onStepTouch, { passive: false });
+  stepRow.addEventListener('touchmove', onStepTouch, { passive: false });
+  stepRow.addEventListener('touchend', onStepTouch, { passive: false });
+  stepRow.addEventListener('touchcancel', onStepTouch, { passive: false });
+  stepRow.addEventListener('pointerdown', function (e) {
+    if (e.pointerType === 'touch') return;
+    e.preventDefault();
+    beginPaint(stepAt(e.clientX, e.clientY));
   });
+  window.addEventListener('pointermove', function (e) {
+    if (e.pointerType === 'touch' || !paintDrag) return;
+    movePaint(stepAt(e.clientX, e.clientY));
+  });
+  window.addEventListener('pointerup', function (e) { if (e.pointerType !== 'touch') endPaint(); });
+  window.addEventListener('pointercancel', endPaint);
+
+  viewSeg.addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b || b.disabled) return;
+    viewSpan = +b.dataset.v === 2 ? 2 : 1;
+    clampView();
+    saveView();
+    paint();
+  });
+  pagePrev.addEventListener('click', function () {
+    follow = false;
+    viewOrigin -= viewSpan;
+    clampView();
+    saveView();
+    paint();
+  });
+  pageNext.addEventListener('click', function () {
+    follow = false;
+    viewOrigin += viewSpan;
+    clampView();
+    saveView();
+    paint();
+  });
+  followBtn.addEventListener('click', function () {
+    follow = !follow;
+    saveView();
+    paintView();
+    if (follow) paintPlayhead();
+  });
+  function changeBars(delta) {
+    var next = project.bars + delta;
+    if (next < 1 || next > Logic.BARS_MAX) return;
+    if (delta < 0 && Logic.tailHasNotes(project, next)) {
+      if (!window.confirm('第 ' + (next + 1) + ' 小節之後有音符，確定刪掉？')) return;
+    }
+    Logic.resizeBars(project, next);
+    if (cursor.stepIndex >= Logic.stepCount(project)) cursor.stepIndex = 0;
+    if (playhead >= Logic.stepCount(project)) playhead = -1;
+    clampView();
+    changed();
+    paint();
+  }
+  barsDown.addEventListener('click', function () { changeBars(-1); });
+  barsUp.addEventListener('click', function () { changeBars(1); });
+  if (window.ResizeObserver) new ResizeObserver(function () { applyWidths(); }).observe(stepRow);
+  window.addEventListener('resize', applyWidths);
+  window.addEventListener('orientationchange', function () { setTimeout(applyWidths, 60); });
 
   window.addEventListener('pointermove', function (e) {
     if (e.pointerType === 'touch' || !(e.pointerId in padPtrs)) return;

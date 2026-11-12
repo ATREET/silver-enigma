@@ -258,6 +258,7 @@ test('old projects without meter load as 4/4 sixteenths', function () {
   var p = Logic.parseProject({ bpm: 90, tracks: [{ id: 't1', sound: 'kick', steps: [1, 0, 0, 0, 1] }] });
   assert.strictEqual(p.meter, '4/4');
   assert.strictEqual(p.resolution, 16);
+  assert.strictEqual(p.bars, 1);
   assert.strictEqual(p.tracks[0].steps.length, 16);
   assert.strictEqual(p.tracks[0].steps[0], 1);
   assert.strictEqual(p.tracks[0].steps[4], 1);
@@ -265,6 +266,7 @@ test('old projects without meter load as 4/4 sixteenths', function () {
   var wrapped = Logic.parseProject(JSON.stringify(Logic.wrapProject(p)));
   assert.strictEqual(wrapped.meter, '4/4');
   assert.strictEqual(wrapped.resolution, 16);
+  assert.strictEqual(wrapped.bars, 1);
 });
 
 test('changing resolution keeps on-grid notes and drops the rest', function () {
@@ -292,18 +294,99 @@ test('changing meter keeps notes that still fit and drops the rest', function ()
   var kick = Logic.findTrack(p, 't1').steps.slice();
   Logic.setGrid(p, '2/4', 16);
   assert.strictEqual(p.meter, '2/4');
-  assert.strictEqual(Logic.stepCount(p), 8);
+  assert.strictEqual(Logic.stepCount(p), 16);
   assert.strictEqual(Logic.findTrack(p, 't1').steps[0], kick[0]);
   assert.strictEqual(Logic.findTrack(p, 't1').steps[7], 0);
-  assert.strictEqual(Logic.findTrack(p, 't1').steps.length, 8);
+  assert.strictEqual(Logic.findTrack(p, 't1').steps.length, 16);
   Logic.setGrid(p, '5/4', 16);
-  assert.strictEqual(Logic.stepCount(p), 20);
+  assert.strictEqual(Logic.stepCount(p), 40);
   assert.strictEqual(Logic.findTrack(p, 't1').steps[0], 1);
   assert.strictEqual(Logic.findTrack(p, 't1').steps[19], 0);
   Logic.setGrid(p, '6/8', 16);
-  assert.strictEqual(Logic.stepCount(p), 12);
+  assert.strictEqual(Logic.stepCount(p), 24);
   assert.strictEqual(p.resolution, 16);
   assert.strictEqual(Logic.stepSeconds(p.bpm, p.resolution), Logic.stepSeconds(p.bpm, 16));
+});
+
+test('new projects default to 2 bars and old one-bar files stay 1 bar', function () {
+  var fresh = Logic.defaultProject();
+  assert.strictEqual(fresh.bars, 2);
+  assert.strictEqual(Logic.stepCount(fresh), 32);
+  assert.strictEqual(fresh.tracks[0].steps[0], fresh.tracks[0].steps[16]);
+  assert.strictEqual(fresh.tracks[0].steps[14], fresh.tracks[0].steps[30]);
+  var old = Logic.parseProject({
+    meter: '4/4',
+    resolution: 16,
+    tracks: [{ id: 't1', steps: [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0] }]
+  });
+  assert.strictEqual(old.bars, 1);
+  assert.strictEqual(old.tracks[0].steps.length, 16);
+  assert.strictEqual(old.tracks[0].steps[8], 1);
+  var saved = Logic.parseProject(JSON.stringify(Logic.wrapProject(fresh)));
+  assert.strictEqual(saved.bars, 2);
+  assert.strictEqual(saved.tracks[0].steps.length, 32);
+});
+
+test('adding bars copies the last bar; removing drops only the tail', function () {
+  var p = Logic.parseProject({
+    bars: 1,
+    tracks: [{ id: 't1', steps: [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }]
+  });
+  assert.strictEqual(Logic.tailHasNotes(p, 1), false);
+  Logic.resizeBars(p, 2);
+  assert.strictEqual(p.bars, 2);
+  assert.strictEqual(p.tracks[0].steps.length, 32);
+  assert.strictEqual(p.tracks[0].steps[16], 1);
+  assert.strictEqual(p.tracks[0].steps[20], 1);
+  p.tracks[0].steps[18] = 1;
+  assert.strictEqual(Logic.tailHasNotes(p, 1), true);
+  Logic.resizeBars(p, 1);
+  assert.strictEqual(p.bars, 1);
+  assert.strictEqual(p.tracks[0].steps.length, 16);
+  assert.strictEqual(p.tracks[0].steps[0], 1);
+  Logic.resizeBars(p, 9);
+  assert.strictEqual(p.bars, Logic.BARS_MAX);
+  assert.strictEqual(Logic.stepCount(p), 16 * 8);
+});
+
+test('step widths fill the row exactly for one or two visible bars', function () {
+  function sum(plan, count, bars) {
+    var shown = bars === 1 ? 1 : 2;
+    var gaps = (count - shown) * plan.gap + (shown - 1) * plan.barGap;
+    var w = 0;
+    for (var i = 0; i < plan.widths.length; i++) w += plan.widths[i];
+    return w + gaps;
+  }
+  [320, 568, 700, 844].forEach(function (width) {
+    [8, 16, 32, 56, 112].forEach(function (count) {
+      var bars = count > 56 ? 2 : 1;
+      if (count === 112) bars = 2;
+      if (count === 16 || count === 8) bars = 1;
+      var plan = Logic.layoutSteps(width, count, bars);
+      assert.strictEqual(plan.widths.length, count);
+      assert.strictEqual(sum(plan, count, bars), width, width + ' ' + count);
+      assert.ok(plan.min >= 1);
+    });
+  });
+  var one = Logic.layoutSteps(800, 16, 1);
+  var two = Logic.layoutSteps(800, 32, 2);
+  assert.ok(one.min > two.min);
+  var dense = Logic.layoutSteps(700, 112, 2);
+  assert.strictEqual(dense.min, 4);
+  assert.strictEqual(Logic.layoutSteps(560, 112, 2).min, 3);
+});
+
+test('each kit sound has its own Morandi color', function () {
+  Logic.kitList().forEach(function (kit) {
+    var seen = {};
+    Logic.KITS[kit.id].sounds.forEach(function (s) {
+      var c = Logic.soundColor(kit.id, s.id);
+      assert.match(c, /^#[0-9a-f]{6}$/);
+      assert.ok(!seen[c], kit.id + ' ' + s.id);
+      seen[c] = true;
+      assert.match(Logic.inkOn(c), /^#/);
+    });
+  });
 });
 
 test('setGrid is a no-op when meter and resolution do not change', function () {

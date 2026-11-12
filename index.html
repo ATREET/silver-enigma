@@ -102,7 +102,28 @@
       </div>
       <div id="padGrid"></div>
     </div>
-    <div id="stepRow" role="group" aria-label="十六步"></div>
+    <div id="stepTools">
+      <div class="grp">
+        <span class="cap">顯示</span>
+        <div class="seg" id="viewSeg" role="group" aria-label="顯示幾個小節">
+          <button type="button" data-v="1">1 小節</button>
+          <button type="button" data-v="2">2 小節</button>
+        </div>
+      </div>
+      <div class="grp" id="pageGrp">
+        <button type="button" id="pagePrev" class="btn" aria-label="上一頁">◀</button>
+        <span id="pageLabel" class="lbl">第1小節</span>
+        <button type="button" id="pageNext" class="btn" aria-label="下一頁">▶</button>
+      </div>
+      <button type="button" id="followBtn" class="btn toggle" aria-pressed="true">跟隨</button>
+      <div class="grp">
+        <span class="cap">循環</span>
+        <button type="button" id="barsDown" class="btn" aria-label="減少小節">−</button>
+        <span id="barsLabel" class="lbl">2</span>
+        <button type="button" id="barsUp" class="btn" aria-label="增加小節">+</button>
+      </div>
+    </div>
+    <div id="stepRow" role="group" aria-label="步進"></div>
   </section>
   <div id="rotate">請將手機橫放，彈起來更舒服 ↻</div>
 </div>
