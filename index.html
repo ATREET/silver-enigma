@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="鋼琴">
+<meta name="theme-color" content="#1a1d2e">
+<meta name="format-detection" content="telephone=no">
+<title>我的鋼琴</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header id="bar">
+    <div class="grp">
+      <button id="octDown" class="btn" aria-label="降八度">◀</button>
+      <span id="octLabel" class="lbl">C4</span>
+      <button id="octUp" class="btn" aria-label="升八度">▶</button>
+    </div>
+    <div class="grp">
+      <span class="cap">範圍</span>
+      <div class="seg" id="rangeSeg">
+        <button data-v="1">1</button><button data-v="2">2</button><button data-v="3">3</button>
+      </div>
+      
+    </div>
+    <div class="grp">
+      <span class="cap">標示</span>
+      <div class="seg" id="labelSeg">
+        <button data-v="none">無</button><button data-v="abc">CDE</button><button data-v="solfege">Do Re</button>
+      </div>
+    </div>
+    <div class="grp">
+      <span class="cap">回音</span>
+      <div class="seg" id="reverbSeg">
+        <button data-v="none">無回音</button><button data-v="short">短</button><button data-v="long">長</button>
+      </div>
+    </div>
+    <div class="grp">
+      <button id="sustain" class="btn toggle" aria-pressed="false">延音</button>
+    </div>
+    <div class="grp">
+      <span class="cap">音量</span>
+      <input id="vol" type="range" min="0" max="100" value="80" aria-label="音量">
+    </div>
+  </header>
+  <div id="chordBar"><span id="chordName"></span><span id="chordSub"></span></div>
+  <main id="kbWrap"><div id="keyboard"></div></main>
+  <div id="rotate">請將手機橫放，彈起來更舒服 ↻</div>
+</div>
+<div id="overlay">
+  <div class="card">
+    <h1>🎹 我的鋼琴</h1>
+    <p id="status">正在載入鋼琴音色…</p>
+    <div class="prog"><div id="progBar"></div></div>
+    <button id="start" class="big" disabled>點一下開始彈奏</button>
+    <p class="hint">若沒有聲音：請確認 iPhone 側邊的<b>靜音開關</b>沒有開啟，並調高音量。<br>
+    在 Safari 按「分享 → 加入主畫面」即可像 App 一樣使用，離線也能彈。</p>
+  </div>
+</div>
+<script src="chord.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

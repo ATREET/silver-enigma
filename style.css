@@ -1,0 +1,52 @@
+:root{--bg:#1a1d2e;--panel:#242842;--accent:#e85d75;--fg:#eef;--muted:#9aa0c0}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);overflow:hidden;
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC",sans-serif;
+  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;overscroll-behavior:none;touch-action:none}
+#app{position:fixed;inset:0;display:flex;flex-direction:column;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+#bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;padding:6px 10px;background:var(--panel);font-size:14px}
+.grp{display:flex;align-items:center;gap:6px}
+.cap{color:var(--muted);font-size:13px}
+.lbl{min-width:2.6em;text-align:center;font-weight:600}
+button{font:inherit;color:var(--fg);touch-action:manipulation}
+.btn{background:#353a5e;border:0;border-radius:8px;padding:7px 12px;min-width:40px;min-height:34px}
+.btn:active{background:#4a5080}
+.toggle[aria-pressed=true]{background:var(--accent)}
+.seg{display:flex;background:#353a5e;border-radius:8px;padding:2px}
+.seg button{background:transparent;border:0;border-radius:6px;padding:6px 10px;min-height:30px}
+.seg button.on{background:var(--accent)}
+input[type=range]{width:110px;accent-color:var(--accent)}
+#kbWrap{flex:1;position:relative;padding:4px 4px 6px;min-height:0}
+#keyboard{position:relative;width:100%;height:100%;touch-action:none}
+.key{position:absolute;top:0;border-radius:0 0 8px 8px;display:flex;align-items:flex-end;justify-content:center;
+  font-size:13px;padding-bottom:8px;pointer-events:auto}
+.white{height:100%;background:linear-gradient(#fff,#f1f1ea);color:#666;border:1px solid #999;z-index:1;
+  box-shadow:inset 0 -6px 0 #ddd}
+.white.down{background:linear-gradient(#ffd6de,#f7b9c5);box-shadow:inset 0 -2px 0 #e99}
+.black{height:60%;background:linear-gradient(#333,#111);color:#bbb;z-index:2;border-radius:0 0 6px 6px;
+  font-size:10px;box-shadow:0 3px 4px rgba(0,0,0,.5)}
+.black.down{background:linear-gradient(#a33a50,#6d1f30)}
+.key .c{font-weight:700;color:var(--accent)}
+#rotate{display:none;text-align:center;padding:6px;color:var(--muted);font-size:13px}
+@media (orientation:portrait){#rotate{display:block}}
+#overlay{position:fixed;inset:0;background:rgba(10,12,24,.92);display:flex;align-items:center;justify-content:center;z-index:10;touch-action:manipulation}
+#overlay.hidden{display:none}
+.card{max-width:440px;margin:16px;padding:20px 22px;background:var(--panel);border-radius:16px;text-align:center}
+.card h1{margin:0 0 8px;font-size:22px}
+.prog{height:6px;background:#353a5e;border-radius:3px;overflow:hidden;margin:10px 0 14px}
+#progBar{height:100%;width:0;background:var(--accent);transition:width .15s}
+.big{background:var(--accent);border:0;border-radius:12px;padding:14px 22px;font-size:18px;width:100%}
+.big:disabled{opacity:.5}
+.hint{color:var(--muted);font-size:13px;line-height:1.6;margin:14px 0 0}
+#chordBar{height:46px;display:flex;align-items:baseline;justify-content:center;gap:12px;padding-top:4px}
+#chordName{font-size:34px;font-weight:800;letter-spacing:.5px;color:#fff;line-height:40px}
+#chordSub{font-size:15px;color:var(--muted)}
+@media (max-height:340px){#chordBar{height:34px}#chordName{font-size:26px;line-height:30px}}
+/* 精簡工具列：一行放不下時可左右滑動 */
+#bar{flex-wrap:nowrap;overflow-x:auto;gap:10px;padding:5px 8px;font-size:13px;touch-action:pan-x;scrollbar-width:none}
+#bar::-webkit-scrollbar{display:none}
+.grp{flex:none;gap:4px}
+.btn{padding:6px 10px;min-width:36px;min-height:32px}
+.seg button{padding:5px 8px;min-height:28px}
+input[type=range]{width:80px}
