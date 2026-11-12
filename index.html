@@ -65,8 +65,20 @@
     <div id="mpcTop">
       <div class="grp">
         <span class="cap">速度</span>
-        <input id="bpm" type="range" min="40" max="240" value="96" aria-label="速度">
-        <span id="bpmLabel" class="lbl">96</span>
+        <input id="bpm" type="range" min="40" max="240" value="96" aria-label="速度" title="BPM 是四分音符速度">
+        <span id="bpmLabel" class="lbl" title="BPM 是四分音符速度。換拍號只改小節有多長，不改音符速度。">96</span>
+      </div>
+      <div class="grp">
+        <span class="cap">拍號</span>
+        <select id="meterSel" aria-label="拍號" title="小節拍號。6/8、9/8、12/8 的重音是附點四分音符。"></select>
+      </div>
+      <div class="grp">
+        <span class="cap">音符</span>
+        <div class="seg" id="resSeg" role="group" aria-label="每步音符">
+          <button type="button" data-v="8">8分</button>
+          <button type="button" data-v="16">16分</button>
+          <button type="button" data-v="32">32分</button>
+        </div>
       </div>
       <div class="grp">
         <span class="cap">套鼓</span>

@@ -2,11 +2,65 @@
 (function (root) {
   'use strict';
 
-  var STEPS = 16;
+  var STEPS = 16; // 預設 4/4、十六分音符的步數；鼓墊也是 16 個
   var BPM_MIN = 40;
   var BPM_MAX = 240;
   var MAX_TRACKS = 8;
   var FORMAT = 'silver-enigma-mpc';
+  // BPM 一律是四分音符速度。拍號只決定小節有多長、重音落在哪。
+  // 6/8、9/8、12/8 的「一拍」是附點四分音符（三個八分），格子上的重音跟著這個走。
+  // 5/8 用 3+2，7/8 用 2+2+3（單位是分母音符）。
+  var METER_LIST = [
+    { id: '2/4', beats: 2, unit: 4, groups: [1, 1] },
+    { id: '3/4', beats: 3, unit: 4, groups: [1, 1, 1] },
+    { id: '4/4', beats: 4, unit: 4, groups: [1, 1, 1, 1] },
+    { id: '5/4', beats: 5, unit: 4, groups: [1, 1, 1, 1, 1] },
+    { id: '6/4', beats: 6, unit: 4, groups: [1, 1, 1, 1, 1, 1] },
+    { id: '7/4', beats: 7, unit: 4, groups: [1, 1, 1, 1, 1, 1, 1] },
+    { id: '5/8', beats: 5, unit: 8, groups: [3, 2] },
+    { id: '6/8', beats: 6, unit: 8, groups: [3, 3] },
+    { id: '7/8', beats: 7, unit: 8, groups: [2, 2, 3] },
+    { id: '9/8', beats: 9, unit: 8, groups: [3, 3, 3] },
+    { id: '12/8', beats: 12, unit: 8, groups: [3, 3, 3, 3] }
+  ];
+  var METER_BY_ID = {};
+  METER_LIST.forEach(function (m) { METER_BY_ID[m.id] = m; });
+
+  function resolveMeter(id) {
+    if (id && METER_BY_ID[id]) return METER_BY_ID[id];
+    if (id && id.id && METER_BY_ID[id.id]) return METER_BY_ID[id.id];
+    return METER_BY_ID['4/4'];
+  }
+
+  function resolveResolution(n) {
+    n = +n;
+    if (n === 8 || n === 16 || n === 32) return n;
+    return 16;
+  }
+
+  function stepsPerBar(meter, resolution) {
+    var m = resolveMeter(meter);
+    var res = resolveResolution(resolution);
+    return m.beats * res / m.unit;
+  }
+
+  function beatStarts(meter, resolution) {
+    var m = resolveMeter(meter);
+    var res = resolveResolution(resolution);
+    var per = res / m.unit;
+    var starts = [];
+    var pos = 0;
+    for (var i = 0; i < m.groups.length; i++) {
+      starts.push(pos);
+      pos += m.groups[i] * per;
+    }
+    return starts;
+  }
+
+  function stepCount(project) {
+    if (project && (project.meter || project.resolution)) return stepsPerBar(project.meter, project.resolution);
+    return STEPS;
+  }
 
   function snd(id, name, choke, voice) {
     return { id: id, name: name, choke: choke || null, voice: voice };
@@ -110,16 +164,17 @@
     return s.slice(0, 40);
   }
 
-  function emptySteps() {
+  function emptySteps(count) {
+    var n = count > 0 ? count | 0 : STEPS;
     var s = [];
-    for (var i = 0; i < STEPS; i++) s.push(0);
+    for (var i = 0; i < n; i++) s.push(0);
     return s;
   }
 
-  function copySteps(raw) {
-    var steps = emptySteps();
+  function copySteps(raw, count) {
+    var steps = emptySteps(count);
     if (!raw) return steps;
-    for (var i = 0; i < STEPS; i++) {
+    for (var i = 0; i < steps.length; i++) {
       var v = +raw[i];
       if (!(v > 0)) v = 0;
       if (v > 1) v = 1;
@@ -128,14 +183,43 @@
     return steps;
   }
 
-  function stepSeconds(bpm) {
-    return 60 / clampBpm(bpm) / 4;
+  // 對不到新格子的音丟掉，不挪到隔壁拍。超過新小節的也丟掉。
+  function remapSteps(steps, fromRes, toRes, toCount) {
+    var from = resolveResolution(fromRes);
+    var to = resolveResolution(toRes);
+    var out = emptySteps(toCount);
+    var src = steps || [];
+    for (var s = 0; s < src.length; s++) {
+      var vel = +src[s] || 0;
+      if (!(vel > 0)) continue;
+      if (vel > 1) vel = 1;
+      var mapped = s * to / from;
+      var idx = Math.round(mapped);
+      if (Math.abs(mapped - idx) > 1e-6) continue;
+      if (idx < 0 || idx >= out.length) continue;
+      if (vel > out[idx]) out[idx] = vel;
+    }
+    return out;
   }
 
-  /* 從 nextTime 起，把 time < horizon 的十六分音符排進佇列。不修改輸入。 */
-  function takeEvents(bpm, stepIndex, nextTime, horizon, maxEvents) {
-    var dur = stepSeconds(bpm);
-    var step = ((stepIndex % STEPS) + STEPS) % STEPS;
+  function mapStepIndex(index, fromRes, toRes, toCount) {
+    var from = resolveResolution(fromRes);
+    var to = resolveResolution(toRes);
+    var n = toCount > 0 ? toCount | 0 : 1;
+    var idx = Math.round((+index || 0) * to / from);
+    return ((idx % n) + n) % n;
+  }
+
+  function stepSeconds(bpm, resolution) {
+    var res = resolution == null ? 16 : resolveResolution(resolution);
+    return (60 / clampBpm(bpm)) * (4 / res);
+  }
+
+  /* 從 nextTime 起，把 time < horizon 的步排進佇列。不修改輸入。未給步數時維持 16 步、十六分音符。 */
+  function takeEvents(bpm, stepIndex, nextTime, horizon, maxEvents, count, resolution) {
+    var n = count > 0 ? count | 0 : STEPS;
+    var dur = stepSeconds(bpm, resolution);
+    var step = ((stepIndex % n) + n) % n;
     var time = +nextTime;
     if (!(time >= 0) && time !== 0) time = 0;
     var limit = maxEvents > 0 ? maxEvents | 0 : 64;
@@ -144,13 +228,13 @@
     while (time < horizon && events.length < limit && guard < 10000) {
       events.push({ step: step, time: time });
       time += dur;
-      step = (step + 1) % STEPS;
+      step = (step + 1) % n;
       guard++;
     }
     return { events: events, stepIndex: step, nextTime: time };
   }
 
-  function trackFrom(raw, usedIds, seqBox, index) {
+  function trackFrom(raw, usedIds, seqBox, index, count) {
     var kit = raw && KITS[raw.kit] ? raw.kit : 'acoustic';
     var meta = resolveSound(kit, raw && raw.sound);
     var id = raw && typeof raw.id === 'string' ? raw.id : '';
@@ -168,25 +252,30 @@
       sound: meta.id,
       mute: !!(raw && raw.mute),
       volume: clampVol(raw && raw.volume != null ? raw.volume : 80),
-      steps: copySteps(raw && raw.steps)
+      steps: copySteps(raw && raw.steps, count)
     };
   }
 
   function normalize(data) {
     data = data && typeof data === 'object' ? data : {};
+    var meter = resolveMeter(data.meter);
+    var resolution = resolveResolution(data.resolution);
+    var count = stepsPerBar(meter, resolution);
     var used = {};
     var seqBox = { n: 1 };
     var tracks = [];
     var list = Array.isArray(data.tracks) ? data.tracks : [];
     for (var i = 0; i < list.length && tracks.length < MAX_TRACKS; i++) {
       if (!list[i] || typeof list[i] !== 'object') continue;
-      tracks.push(trackFrom(list[i], used, seqBox, tracks.length));
+      tracks.push(trackFrom(list[i], used, seqBox, tracks.length, count));
     }
     if (typeof data.seq === 'number' && data.seq > seqBox.n) seqBox.n = data.seq | 0;
     return {
       version: 1,
       name: cleanName(data.name, '未命名'),
       bpm: clampBpm(data.bpm == null ? 100 : data.bpm),
+      meter: meter.id,
+      resolution: resolution,
       seq: seqBox.n,
       tracks: tracks
     };
@@ -203,6 +292,8 @@
     return normalize({
       name: '未命名',
       bpm: 96,
+      meter: '4/4',
+      resolution: 16,
       seq: 5,
       tracks: [
         { id: 't1', name: '底鼓', kit: 'acoustic', sound: 'kick', volume: 100, steps: stepsOn([0, 8, 14]) },
@@ -253,10 +344,29 @@
       sound: meta.id,
       mute: !!partial.mute,
       volume: clampVol(partial.volume == null ? 80 : partial.volume),
-      steps: copySteps(partial.steps)
+      steps: copySteps(partial.steps, stepCount(project))
     };
     project.tracks.push(track);
     return track;
+  }
+
+  function setGrid(project, meterId, resolution) {
+    var meter = resolveMeter(meterId == null ? project.meter : meterId);
+    var res = resolveResolution(resolution == null ? project.resolution : resolution);
+    var count = stepsPerBar(meter, res);
+    var same = project.meter === meter.id && project.resolution === res;
+    if (same) {
+      var fit = true;
+      for (var i = 0; i < project.tracks.length; i++) if (project.tracks[i].steps.length !== count) fit = false;
+      if (fit) return project;
+    }
+    var fromRes = resolveResolution(project.resolution);
+    for (var t = 0; t < project.tracks.length; t++) {
+      project.tracks[t].steps = remapSteps(project.tracks[t].steps, fromRes, res, count);
+    }
+    project.meter = meter.id;
+    project.resolution = res;
+    return project;
   }
 
   function removeTrack(project, id) {
@@ -272,14 +382,16 @@
 
   function toggleStep(project, trackId, index) {
     var t = findTrack(project, trackId);
+    var n = stepCount(project);
     var i = index | 0;
-    if (!t || i < 0 || i >= STEPS) return false;
+    if (!t || i < 0 || i >= n) return false;
     t.steps[i] = t.steps[i] > 0 ? 0 : 1;
     return true;
   }
 
   function hitsAt(project, step) {
-    var i = ((step % STEPS) + STEPS) % STEPS;
+    var n = stepCount(project);
+    var i = ((step % n) + n) % n;
     var out = [];
     var tracks = project && project.tracks || [];
     for (var n = 0; n < tracks.length; n++) {
@@ -348,9 +460,18 @@ function upsertSlot(slots, entry, max) {
     BPM_MAX: BPM_MAX,
     MAX_TRACKS: MAX_TRACKS,
     FORMAT: FORMAT,
+    METERS: METER_LIST,
     KITS: KITS,
     kitList: kitList,
     resolveSound: resolveSound,
+    resolveMeter: resolveMeter,
+    resolveResolution: resolveResolution,
+    stepsPerBar: stepsPerBar,
+    beatStarts: beatStarts,
+    stepCount: stepCount,
+    remapSteps: remapSteps,
+    mapStepIndex: mapStepIndex,
+    setGrid: setGrid,
     clampBpm: clampBpm,
     stepSeconds: stepSeconds,
     takeEvents: takeEvents,

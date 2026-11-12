@@ -209,3 +209,106 @@ test('WAV header matches 16-bit mono PCM', function () {
   assert.strictEqual(view.getInt16(48, true), -32768);
   assert.strictEqual(buf.byteLength, 44 + 6);
 });
+
+test('step length follows resolution; BPM stays a quarter note', function () {
+  assert.strictEqual(Logic.stepSeconds(120), 0.125);
+  assert.strictEqual(Logic.stepSeconds(120, 16), 0.125);
+  assert.strictEqual(Logic.stepSeconds(120, 8), 0.25);
+  assert.strictEqual(Logic.stepSeconds(120, 32), 0.0625);
+  assert.strictEqual(Logic.stepSeconds(120, 7), 0.125);
+});
+
+test('steps per bar come from meter and resolution', function () {
+  assert.deepStrictEqual(Logic.METERS.map(function (m) { return m.id; }),
+    ['2/4', '3/4', '4/4', '5/4', '6/4', '7/4', '5/8', '6/8', '7/8', '9/8', '12/8']);
+  assert.strictEqual(Logic.stepsPerBar('4/4', 8), 8);
+  assert.strictEqual(Logic.stepsPerBar('4/4', 16), 16);
+  assert.strictEqual(Logic.stepsPerBar('4/4', 32), 32);
+  assert.strictEqual(Logic.stepsPerBar('3/4', 16), 12);
+  assert.strictEqual(Logic.stepsPerBar('6/8', 8), 6);
+  assert.strictEqual(Logic.stepsPerBar('6/8', 16), 12);
+  assert.strictEqual(Logic.stepsPerBar('6/8', 32), 24);
+  assert.strictEqual(Logic.stepsPerBar('12/8', 32), 48);
+  assert.strictEqual(Logic.stepsPerBar('7/4', 32), 56);
+  assert.strictEqual(Logic.stepsPerBar('nope', 16), 16);
+  Logic.METERS.forEach(function (m) {
+    [8, 16, 32].forEach(function (res) {
+      var starts = Logic.beatStarts(m, res);
+      var per = res / m.unit;
+      var end = starts[starts.length - 1] + m.groups[m.groups.length - 1] * per;
+      assert.strictEqual(end, Logic.stepsPerBar(m, res), m.id + ' ' + res);
+      assert.strictEqual(starts[0], 0);
+    });
+  });
+  assert.deepStrictEqual(Logic.beatStarts('4/4', 16), [0, 4, 8, 12]);
+  assert.deepStrictEqual(Logic.beatStarts('6/8', 16), [0, 6]);
+  assert.deepStrictEqual(Logic.beatStarts('7/8', 8), [0, 2, 4]);
+  assert.deepStrictEqual(Logic.beatStarts('12/8', 8), [0, 3, 6, 9]);
+});
+
+test('takeEvents can wrap a shorter bar at a coarser resolution', function () {
+  var r = Logic.takeEvents(120, 5, 0, 1, 8, 6, 8);
+  assert.deepStrictEqual(r.events.map(function (e) { return e.step; }), [5, 0, 1, 2]);
+  assert.ok(Math.abs(r.events[1].time - 0.25) < 1e-9);
+  assert.strictEqual(r.stepIndex, 3);
+  assert.ok(Math.abs(r.nextTime - 1) < 1e-9);
+});
+
+test('old projects without meter load as 4/4 sixteenths', function () {
+  var p = Logic.parseProject({ bpm: 90, tracks: [{ id: 't1', sound: 'kick', steps: [1, 0, 0, 0, 1] }] });
+  assert.strictEqual(p.meter, '4/4');
+  assert.strictEqual(p.resolution, 16);
+  assert.strictEqual(p.tracks[0].steps.length, 16);
+  assert.strictEqual(p.tracks[0].steps[0], 1);
+  assert.strictEqual(p.tracks[0].steps[4], 1);
+  assert.strictEqual(p.tracks[0].steps[5], 0);
+  var wrapped = Logic.parseProject(JSON.stringify(Logic.wrapProject(p)));
+  assert.strictEqual(wrapped.meter, '4/4');
+  assert.strictEqual(wrapped.resolution, 16);
+});
+
+test('changing resolution keeps on-grid notes and drops the rest', function () {
+  var p = Logic.parseProject({
+    meter: '4/4',
+    resolution: 16,
+    tracks: [{ id: 't1', steps: [1, 0.4, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0] }]
+  });
+  Logic.setGrid(p, '4/4', 8);
+  assert.strictEqual(p.resolution, 8);
+  assert.strictEqual(p.tracks[0].steps.length, 8);
+  assert.deepStrictEqual(p.tracks[0].steps, [1, 0, 1, 0, 0, 0, 0, 1]);
+  Logic.setGrid(p, '4/4', 32);
+  assert.strictEqual(p.tracks[0].steps.length, 32);
+  assert.strictEqual(p.tracks[0].steps[0], 1);
+  assert.strictEqual(p.tracks[0].steps[8], 1);
+  assert.strictEqual(p.tracks[0].steps[28], 1);
+  assert.strictEqual(p.tracks[0].steps[1], 0);
+  assert.strictEqual(Logic.mapStepIndex(14, 16, 8, 8), 7);
+  assert.strictEqual(Logic.mapStepIndex(1, 16, 8, 8), 1);
+});
+
+test('changing meter keeps notes that still fit and drops the rest', function () {
+  var p = Logic.defaultProject();
+  var kick = Logic.findTrack(p, 't1').steps.slice();
+  Logic.setGrid(p, '2/4', 16);
+  assert.strictEqual(p.meter, '2/4');
+  assert.strictEqual(Logic.stepCount(p), 8);
+  assert.strictEqual(Logic.findTrack(p, 't1').steps[0], kick[0]);
+  assert.strictEqual(Logic.findTrack(p, 't1').steps[7], 0);
+  assert.strictEqual(Logic.findTrack(p, 't1').steps.length, 8);
+  Logic.setGrid(p, '5/4', 16);
+  assert.strictEqual(Logic.stepCount(p), 20);
+  assert.strictEqual(Logic.findTrack(p, 't1').steps[0], 1);
+  assert.strictEqual(Logic.findTrack(p, 't1').steps[19], 0);
+  Logic.setGrid(p, '6/8', 16);
+  assert.strictEqual(Logic.stepCount(p), 12);
+  assert.strictEqual(p.resolution, 16);
+  assert.strictEqual(Logic.stepSeconds(p.bpm, p.resolution), Logic.stepSeconds(p.bpm, 16));
+});
+
+test('setGrid is a no-op when meter and resolution do not change', function () {
+  var p = Logic.defaultProject();
+  var before = p.tracks[0].steps.slice();
+  Logic.setGrid(p, '4/4', 16);
+  assert.deepStrictEqual(p.tracks[0].steps, before);
+});

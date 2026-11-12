@@ -40,6 +40,8 @@
   var beatToggle = document.getElementById('beatToggle');
   var bpm = document.getElementById('bpm');
   var bpmLabel = document.getElementById('bpmLabel');
+  var meterSel = document.getElementById('meterSel');
+  var resSeg = document.getElementById('resSeg');
   var kitSeg = document.getElementById('kitSeg');
   var muteBtn = document.getElementById('muteBtn');
   var trkVol = document.getElementById('trkVol');
@@ -168,9 +170,21 @@
     }
   }
 
+  function revealStep(i) {
+    var el = stepRow.children[i];
+    if (!el) return;
+    var viewL = stepRow.scrollLeft;
+    var viewR = viewL + stepRow.clientWidth;
+    var left = el.offsetLeft;
+    var right = left + el.offsetWidth;
+    if (left < viewL) stepRow.scrollLeft = Math.max(0, left - 6);
+    else if (right > viewR) stepRow.scrollLeft = right - stepRow.clientWidth + 6;
+  }
+
   function paintPlayhead() {
     var buttons = stepRow.children;
     for (var i = 0; i < buttons.length; i++) buttons[i].classList.toggle('now', i === playhead);
+    if (transportOn && playhead >= 0) revealStep(playhead);
   }
 
   function schedulePaint(step, time) {
@@ -190,7 +204,7 @@
     if (ctx.state === 'suspended') ctx.resume();
     var now = ctx.currentTime;
     if (!(cursor.nextTime >= now - 0.05)) cursor.nextTime = now + 0.02;
-    var result = Logic.takeEvents(project.bpm, cursor.stepIndex, cursor.nextTime, now + 0.2, 8);
+    var result = Logic.takeEvents(project.bpm, cursor.stepIndex, cursor.nextTime, now + 0.2, 16, Logic.stepCount(project), project.resolution);
     for (var i = 0; i < result.events.length; i++) {
       triggerStep(result.events[i].step, result.events[i].time);
       schedulePaint(result.events[i].step, result.events[i].time);
@@ -308,13 +322,21 @@
     if (t) soundSel.value = t.sound;
   }
 
+  function paintMeter() {
+    if (meterSel) meterSel.value = project.meter;
+    if (!resSeg) return;
+    var buttons = resSeg.querySelectorAll('button');
+    for (var i = 0; i < buttons.length; i++) buttons[i].classList.toggle('on', +buttons[i].dataset.v === project.resolution);
+  }
+
   function paint() {
     if (!selected() && project.tracks[0]) selectedId = project.tracks[0].id;
     paintTracks();
     paintPads();
-    paintSteps();
+    ensureSteps();
     paintEdit();
     paintKit();
+    paintMeter();
     bpm.value = String(project.bpm);
     bpmLabel.textContent = String(project.bpm);
   }
@@ -403,15 +425,47 @@
     }
   }
 
-  function buildSteps() {
-    for (var i = 0; i < Logic.STEPS; i++) {
+  function ensureSteps() {
+    var n = Logic.stepCount(project);
+    var key = project.meter + ':' + project.resolution + ':' + n;
+    if (stepRow.dataset.key === key && stepRow.children.length === n) {
+      paintSteps();
+      return;
+    }
+    var starts = Logic.beatStarts(project.meter, project.resolution);
+    var mark = {};
+    var beatNo = {};
+    starts.forEach(function (idx, ord) {
+      mark[idx] = ord === 0 ? 'downbeat' : 'beat';
+      beatNo[idx] = ord + 1;
+    });
+    stepRow.innerHTML = '';
+    stepRow.dataset.key = key;
+    for (var i = 0; i < n; i++) {
       var b = document.createElement('button');
       b.type = 'button';
-      b.className = 'step' + (i % 4 === 0 ? ' downbeat' : '');
+      b.className = 'step' + (mark[i] ? ' ' + mark[i] : '');
       b.dataset.step = String(i);
-      b.setAttribute('aria-label', '第 ' + (i + 1) + ' 步');
+      b.setAttribute('aria-label', beatNo[i] ? ('第 ' + beatNo[i] + ' 拍') : ('第 ' + (i + 1) + ' 步'));
       stepRow.appendChild(b);
     }
+    stepRow.setAttribute('aria-label', project.meter + '，' + project.resolution + '分音符');
+    paintSteps();
+  }
+
+  function applyGrid(meter, res) {
+    var nextMeter = Logic.resolveMeter(meter).id;
+    var nextRes = Logic.resolveResolution(res);
+    if (nextMeter === project.meter && nextRes === project.resolution) return;
+    var fromRes = project.resolution;
+    var fromStep = cursor.stepIndex;
+    var fromHead = playhead;
+    Logic.setGrid(project, nextMeter, nextRes);
+    var n = Logic.stepCount(project);
+    cursor.stepIndex = Logic.mapStepIndex(fromStep, fromRes, project.resolution, n);
+    if (fromHead >= 0) playhead = Logic.mapStepIndex(fromHead, fromRes, project.resolution, n);
+    changed();
+    paint();
   }
 
   function buildKits() {
@@ -521,14 +575,15 @@
     var OC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
     if (!OC) return Promise.reject(new Error('no offline'));
     var bars = 4;
-    var step = Logic.stepSeconds(proj.bpm);
-    var total = step * Logic.STEPS * bars + 1;
+    var nSteps = Logic.stepCount(proj);
+    var step = Logic.stepSeconds(proj.bpm, proj.resolution);
+    var total = step * nSteps * bars + 1;
     var rate = ctx.sampleRate || 44100;
     var offline = new OC(1, Math.ceil(rate * total), rate);
     var chokes = {};
     for (var bar = 0; bar < bars; bar++) {
-      for (var s = 0; s < Logic.STEPS; s++) {
-        var time = (bar * Logic.STEPS + s) * step;
+      for (var s = 0; s < nSteps; s++) {
+        var time = (bar * nSteps + s) * step;
         var hits = Logic.hitsAt(proj, s);
         for (var h = 0; h < hits.length; h++) {
           var hit = hits[h];
@@ -565,7 +620,12 @@
 
   buildKits();
   buildPads();
-  buildSteps();
+  Logic.METERS.forEach(function (m) {
+    var o = document.createElement('option');
+    o.value = m.id;
+    o.textContent = m.id;
+    meterSel.appendChild(o);
+  });
   prewarm();
   paint();
   paintTransport();
@@ -587,6 +647,12 @@
     project.bpm = Logic.clampBpm(bpm.value);
     bpmLabel.textContent = String(project.bpm);
     changed();
+  });
+  meterSel.addEventListener('change', function () { applyGrid(meterSel.value, project.resolution); });
+  resSeg.addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    applyGrid(project.meter, +b.dataset.v);
   });
 
   kitSeg.addEventListener('click', function (e) {
