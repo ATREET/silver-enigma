@@ -410,6 +410,91 @@
     for (var i = 0; i < buttons.length; i++) buttons[i].classList.toggle('on', +buttons[i].dataset.v === project.resolution);
   }
 
+  var PRESETS = [
+    { id: 'downbeat', label: '小節首', title: '每小節第一拍（加到現有的音上）' },
+    { id: 'beats', label: '每拍', title: '每一拍的正拍（加上）' },
+    { id: 'offbeat', label: '反拍', title: '每拍正中間的後半拍（加上）' },
+    { id: 'backbeat', label: '2·4拍', title: '第2拍與第4拍，只用於四分拍號（加上）' },
+    { id: 'eighths', label: '每8分', title: '每個八分音符（加上）' },
+    { id: 'sixteenths', label: '每16分', title: '每個十六分音符（加上）' },
+    { id: 'clear', label: '清除', title: '清除此軌' },
+    { id: 'invert', label: '反轉', title: '有音的清掉，空的補上' },
+    { id: 'copybar', label: '複製', title: '把第一小節複製到後面每一小節' }
+  ];
+  var undoSnap = null;
+  var presetRow = document.getElementById('presetRow');
+
+  function buildPresets() {
+    PRESETS.forEach(function (p) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'preset';
+      b.dataset.preset = p.id;
+      b.textContent = p.label;
+      b.title = p.title;
+      b.setAttribute('aria-label', p.title);
+      presetRow.appendChild(b);
+    });
+    var undoBtn = document.createElement('button');
+    undoBtn.type = 'button';
+    undoBtn.className = 'preset';
+    undoBtn.id = 'undoPreset';
+    undoBtn.textContent = '還原';
+    undoBtn.title = '還原上一個快速填入';
+    undoBtn.setAttribute('aria-label', '還原上一個快速填入');
+    presetRow.appendChild(undoBtn);
+    presetRow.addEventListener('click', function (e) {
+      var b = e.target.closest('button');
+      if (!b || b.disabled) return;
+      if (b.id === 'undoPreset') undoPreset();
+      else runPreset(b.dataset.preset);
+    });
+  }
+
+  function paintPresets() {
+    var t = selected();
+    var color = t ? Logic.soundColor(t.kit, t.sound) : '';
+    var ink = color ? Logic.inkOn(color) : '';
+    var buttons = presetRow.querySelectorAll('button');
+    for (var i = 0; i < buttons.length; i++) {
+      var b = buttons[i];
+      if (b.id === 'undoPreset') {
+        b.disabled = !(undoSnap && t && undoSnap.id === t.id && undoSnap.steps.length === t.steps.length);
+        b.style.background = '';
+        b.style.color = '';
+        continue;
+      }
+      var ok = !!(t && Logic.presetEnabled(b.dataset.preset, project.meter, project.resolution, project.bars));
+      b.disabled = !ok;
+      if (color && ok) {
+        b.style.background = color;
+        b.style.color = ink;
+      } else {
+        b.style.background = '';
+        b.style.color = '';
+      }
+    }
+  }
+
+  function runPreset(kind) {
+    var t = selected();
+    if (!t || !Logic.presetEnabled(kind, project.meter, project.resolution, project.bars)) return;
+    undoSnap = { id: t.id, steps: t.steps.slice() };
+    t.steps = Logic.applyPreset(t.steps, kind, project.meter, project.resolution, project.bars);
+    changed();
+    paint();
+  }
+
+  function undoPreset() {
+    if (!undoSnap) return;
+    var t = Logic.findTrack(project, undoSnap.id);
+    if (!t || t.steps.length !== undoSnap.steps.length) { undoSnap = null; paintPresets(); return; }
+    t.steps = undoSnap.steps.slice();
+    undoSnap = null;
+    changed();
+    paint();
+  }
+
   function paint() {
     if (!selected() && project.tracks[0]) selectedId = project.tracks[0].id;
     paintTracks();
@@ -419,6 +504,7 @@
     paintKit();
     paintMeter();
     paintView();
+    paintPresets();
     bpm.value = String(project.bpm);
     bpmLabel.textContent = String(project.bpm);
   }
@@ -571,6 +657,7 @@
     var nextMeter = Logic.resolveMeter(meter).id;
     var nextRes = Logic.resolveResolution(res);
     if (nextMeter === project.meter && nextRes === project.resolution) return;
+    undoSnap = null;
     var fromRes = project.resolution;
     var fromStep = cursor.stepIndex;
     var fromHead = playhead;
@@ -734,6 +821,7 @@
 
   buildKits();
   buildPads();
+  buildPresets();
   Logic.METERS.forEach(function (m) {
     var o = document.createElement('option');
     o.value = m.id;
@@ -855,6 +943,7 @@
   function beginPaint(abs) {
     var t = selected();
     if (!t || abs == null) return;
+    if (undoSnap) { undoSnap = null; paintPresets(); }
     paintDrag = { value: t.steps[abs] > 0 ? 0 : 1 };
     paintAbs(abs, paintDrag.value);
   }
@@ -921,6 +1010,7 @@
   function changeBars(delta) {
     var next = project.bars + delta;
     if (next < 1 || next > Logic.BARS_MAX) return;
+    undoSnap = null;
     if (delta < 0 && Logic.tailHasNotes(project, next)) {
       if (!window.confirm('第 ' + (next + 1) + ' 小節之後有音符，確定刪掉？')) return;
     }

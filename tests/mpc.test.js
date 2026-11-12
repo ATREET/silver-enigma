@@ -389,6 +389,46 @@ test('each kit sound has its own Morandi color', function () {
   });
 });
 
+test('quick fills follow the meter and add without erasing other hits', function () {
+  assert.deepStrictEqual(Logic.presetMask('downbeat', '4/4', 16), [0]);
+  assert.deepStrictEqual(Logic.presetMask('beats', '4/4', 16), [0, 4, 8, 12]);
+  assert.deepStrictEqual(Logic.presetMask('offbeat', '4/4', 16), [2, 6, 10, 14]);
+  assert.deepStrictEqual(Logic.presetMask('backbeat', '4/4', 16), [4, 12]);
+  assert.deepStrictEqual(Logic.presetMask('backbeat', '2/4', 16), [4]);
+  assert.deepStrictEqual(Logic.presetMask('eighths', '4/4', 16), [0, 2, 4, 6, 8, 10, 12, 14]);
+  assert.deepStrictEqual(Logic.presetMask('sixteenths', '4/4', 32), [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30]);
+  assert.strictEqual(Logic.presetMask('sixteenths', '4/4', 8), null);
+  assert.strictEqual(Logic.presetEnabled('sixteenths', '4/4', 8, 1), false);
+  assert.strictEqual(Logic.presetEnabled('backbeat', '6/8', 16, 1), false);
+  assert.deepStrictEqual(Logic.presetMask('beats', '6/8', 16), [0, 6]);
+  assert.deepStrictEqual(Logic.presetMask('offbeat', '6/8', 16), [3, 9]);
+  assert.strictEqual(Logic.presetMask('offbeat', '6/8', 8), null);
+  assert.deepStrictEqual(Logic.presetMask('beats', '7/8', 8), [0, 2, 4]);
+  assert.deepStrictEqual(Logic.presetMask('offbeat', '7/8', 8), [1, 3]);
+  assert.deepStrictEqual(Logic.presetMask('beats', '5/8', 16), [0, 6]);
+  assert.deepStrictEqual(Logic.presetMask('offbeat', '5/8', 16), [3, 8]);
+
+  var src = [0.5, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  var added = Logic.applyPreset(src, 'downbeat', '4/4', 16, 2);
+  assert.strictEqual(src[0], 0.5);
+  assert.strictEqual(added[0], 0.5);
+  assert.strictEqual(added[1], 1);
+  assert.strictEqual(added[16], 1);
+  assert.strictEqual(added.length, 32);
+  var cleared = Logic.applyPreset(added, 'clear', '4/4', 16, 2);
+  assert.ok(cleared.every(function (v) { return v === 0; }));
+  var flipped = Logic.applyPreset([1, 0, 0.4], 'invert', '4/4', 16, 1);
+  assert.strictEqual(flipped[0], 0);
+  assert.strictEqual(flipped[1], 1);
+  assert.strictEqual(flipped[2], 0);
+  var copied = Logic.applyPreset([1, 0, 1, 0], 'copybar', '2/4', 8, 3);
+  assert.strictEqual(Logic.stepsPerBar('2/4', 8), 4);
+  assert.deepStrictEqual(copied.slice(0, 4), [1, 0, 1, 0]);
+  assert.deepStrictEqual(copied.slice(4, 8), [1, 0, 1, 0]);
+  assert.deepStrictEqual(copied.slice(8, 12), [1, 0, 1, 0]);
+  assert.strictEqual(Logic.presetEnabled('copybar', '4/4', 16, 1), false);
+});
+
 test('setGrid is a no-op when meter and resolution do not change', function () {
   var p = Logic.defaultProject();
   var before = p.tracks[0].steps.slice();
