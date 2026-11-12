@@ -2,7 +2,9 @@
 (function (root) {
   'use strict';
 
-  var STEPS = 16; // 預設 4/4、十六分音符的步數；鼓墊也是 16 個
+  var STEPS = 16; // 預設一小節（4/4、十六分音符）；鼓墊也是 16 個
+  var BARS_MAX = 8;
+  var BARS_DEFAULT = 2;
   var BPM_MIN = 40;
   var BPM_MAX = 240;
   var MAX_TRACKS = 8;
@@ -57,9 +59,92 @@
     return starts;
   }
 
+  function clampBars(n) {
+    n = Math.round(+n);
+    if (!(n >= 1)) return 1;
+    if (n > BARS_MAX) return BARS_MAX;
+    return n;
+  }
+
+  function projectBars(project) {
+    if (project && project.bars != null) return clampBars(project.bars);
+    return 1;
+  }
+
   function stepCount(project) {
-    if (project && (project.meter || project.resolution)) return stepsPerBar(project.meter, project.resolution);
-    return STEPS;
+    var bars = projectBars(project);
+    if (project && (project.meter || project.resolution)) return stepsPerBar(project.meter, project.resolution) * bars;
+    return STEPS * bars;
+  }
+
+  function layoutSteps(width, count, bars) {
+    width = Math.max(0, Math.floor(+width || 0));
+    count = count | 0;
+    var barCount = bars === 1 ? 1 : 2;
+    if (count < 1 || width < 1) return { widths: [], gap: 0, barGap: 0, min: 0 };
+    if (barCount > count) barCount = 1;
+    var options = barCount === 1
+      ? [{ gap: 2, barGap: 0 }, { gap: 1, barGap: 0 }, { gap: 0, barGap: 0 }]
+      : [{ gap: 2, barGap: 4 }, { gap: 1, barGap: 3 }, { gap: 1, barGap: 2 }, { gap: 0, barGap: 2 }, { gap: 0, barGap: 0 }];
+    var chosen = { gap: 0, barGap: 0 };
+    var inner = width;
+    for (var o = 0; o < options.length; o++) {
+      var g = options[o];
+      var gaps = (count - barCount) * g.gap + (barCount - 1) * g.barGap;
+      if (width - gaps >= count) {
+        chosen = g;
+        inner = width - gaps;
+        break;
+      }
+    }
+    var base = Math.floor(inner / count);
+    var extra = inner - base * count;
+    var widths = [];
+    for (var i = 0; i < count; i++) widths.push(base + (i < extra ? 1 : 0));
+    var min = widths.length ? widths[widths.length - 1] : 0;
+    return { widths: widths, gap: chosen.gap, barGap: chosen.barGap, min: min };
+  }
+
+  function hslToHex(h, s, l) {
+    s /= 100;
+    l /= 100;
+    var a = s * Math.min(l, 1 - l);
+    function f(n) {
+      var k = (n + h / 30) % 12;
+      var c = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+      return Math.round(255 * Math.max(0, Math.min(1, c)));
+    }
+    function hex(v) {
+      var t = v.toString(16);
+      return t.length < 2 ? '0' + t : t;
+    }
+    return '#' + hex(f(0)) + hex(f(8)) + hex(f(4));
+  }
+
+  function soundColor(kit, soundId) {
+    var order = { acoustic: 0, electronic: 1, perc: 2 };
+    var ki = order[kit] != null ? order[kit] : 0;
+    var sounds = (KITS[kit] || KITS.acoustic).sounds;
+    var si = 0;
+    for (var i = 0; i < sounds.length; i++) if (sounds[i].id === soundId) { si = i; break; }
+    var hue = (si * 22.5 + ki * 15) % 360;
+    var sat = 34 + (si % 3) * 4;
+    var light = 62 - ki * 3 + (si % 2) * 4;
+    return hslToHex(hue, sat, light);
+  }
+
+  function inkOn(hex) {
+    var h = String(hex || '').replace('#', '');
+    if (h.length < 6) return '#2c2826';
+    function lin(c) {
+      c /= 255;
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    }
+    var r = lin(parseInt(h.slice(0, 2), 16));
+    var g = lin(parseInt(h.slice(2, 4), 16));
+    var b = lin(parseInt(h.slice(4, 6), 16));
+    var L = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    return L > 0.42 ? '#2c2826' : '#f6f1ea';
   }
 
   function snd(id, name, choke, voice) {
@@ -183,6 +268,20 @@
     return steps;
   }
 
+  // 沒有 bars 欄位、而且步數不超過一小節：維持 1 小節，不複製。
+  // 步數比一小節長：依長度推回小節數（最多 8）。有 bars 就照它。
+  function inferBars(data, barLen) {
+    if (data && data.bars != null && data.bars !== '') return clampBars(data.bars);
+    var longest = 0;
+    var list = (data && data.tracks) || [];
+    for (var i = 0; i < list.length; i++) {
+      var steps = list[i] && list[i].steps;
+      if (steps && steps.length > longest) longest = steps.length;
+    }
+    if (longest > barLen) return clampBars(Math.ceil(longest / barLen));
+    return 1;
+  }
+
   // 對不到新格子的音丟掉，不挪到隔壁拍。超過新小節的也丟掉。
   function remapSteps(steps, fromRes, toRes, toCount) {
     var from = resolveResolution(fromRes);
@@ -234,7 +333,7 @@
     return { events: events, stepIndex: step, nextTime: time };
   }
 
-  function trackFrom(raw, usedIds, seqBox, index, count) {
+  function trackFrom(raw, usedIds, seqBox, index, barLen, bars) {
     var kit = raw && KITS[raw.kit] ? raw.kit : 'acoustic';
     var meta = resolveSound(kit, raw && raw.sound);
     var id = raw && typeof raw.id === 'string' ? raw.id : '';
@@ -252,7 +351,7 @@
       sound: meta.id,
       mute: !!(raw && raw.mute),
       volume: clampVol(raw && raw.volume != null ? raw.volume : 80),
-      steps: copySteps(raw && raw.steps, count)
+      steps: copySteps(raw && raw.steps, barLen * bars)
     };
   }
 
@@ -260,14 +359,15 @@
     data = data && typeof data === 'object' ? data : {};
     var meter = resolveMeter(data.meter);
     var resolution = resolveResolution(data.resolution);
-    var count = stepsPerBar(meter, resolution);
+    var barLen = stepsPerBar(meter, resolution);
+    var bars = inferBars(data, barLen);
     var used = {};
     var seqBox = { n: 1 };
     var tracks = [];
     var list = Array.isArray(data.tracks) ? data.tracks : [];
     for (var i = 0; i < list.length && tracks.length < MAX_TRACKS; i++) {
       if (!list[i] || typeof list[i] !== 'object') continue;
-      tracks.push(trackFrom(list[i], used, seqBox, tracks.length, count));
+      tracks.push(trackFrom(list[i], used, seqBox, tracks.length, barLen, bars));
     }
     if (typeof data.seq === 'number' && data.seq > seqBox.n) seqBox.n = data.seq | 0;
     return {
@@ -276,6 +376,7 @@
       bpm: clampBpm(data.bpm == null ? 100 : data.bpm),
       meter: meter.id,
       resolution: resolution,
+      bars: bars,
       seq: seqBox.n,
       tracks: tracks
     };
@@ -287,6 +388,14 @@
     return s;
   }
 
+  function tileBars(steps, bars) {
+    var out = [];
+    for (var b = 0; b < bars; b++) {
+      for (var i = 0; i < steps.length; i++) out.push(steps[i]);
+    }
+    return out;
+  }
+
   function defaultProject() {
     var hat = stepsOn([0, 2, 4, 6, 8, 12, 14]);
     return normalize({
@@ -294,12 +403,13 @@
       bpm: 96,
       meter: '4/4',
       resolution: 16,
+      bars: BARS_DEFAULT,
       seq: 5,
       tracks: [
-        { id: 't1', name: '底鼓', kit: 'acoustic', sound: 'kick', volume: 100, steps: stepsOn([0, 8, 14]) },
-        { id: 't2', name: '軍鼓', kit: 'acoustic', sound: 'snare', volume: 88, steps: stepsOn([4, 12]) },
-        { id: 't3', name: '閉鈸', kit: 'acoustic', sound: 'chat', volume: 52, steps: hat },
-        { id: 't4', name: '開鈸', kit: 'acoustic', sound: 'ohat', volume: 64, steps: stepsOn([10]) }
+        { id: 't1', name: '底鼓', kit: 'acoustic', sound: 'kick', volume: 100, steps: tileBars(stepsOn([0, 8, 14]), BARS_DEFAULT) },
+        { id: 't2', name: '軍鼓', kit: 'acoustic', sound: 'snare', volume: 88, steps: tileBars(stepsOn([4, 12]), BARS_DEFAULT) },
+        { id: 't3', name: '閉鈸', kit: 'acoustic', sound: 'chat', volume: 52, steps: tileBars(hat, BARS_DEFAULT) },
+        { id: 't4', name: '開鈸', kit: 'acoustic', sound: 'ohat', volume: 64, steps: tileBars(stepsOn([10]), BARS_DEFAULT) }
       ]
     });
   }
@@ -353,8 +463,9 @@
   function setGrid(project, meterId, resolution) {
     var meter = resolveMeter(meterId == null ? project.meter : meterId);
     var res = resolveResolution(resolution == null ? project.resolution : resolution);
-    var count = stepsPerBar(meter, res);
-    var same = project.meter === meter.id && project.resolution === res;
+    var bars = projectBars(project);
+    var count = stepsPerBar(meter, res) * bars;
+    var same = project.meter === meter.id && project.resolution === res && project.bars === bars;
     if (same) {
       var fit = true;
       for (var i = 0; i < project.tracks.length; i++) if (project.tracks[i].steps.length !== count) fit = false;
@@ -366,6 +477,41 @@
     }
     project.meter = meter.id;
     project.resolution = res;
+    project.bars = bars;
+    return project;
+  }
+
+  function tailHasNotes(project, fromBar) {
+    var barLen = stepsPerBar(project.meter, project.resolution);
+    var start = fromBar * barLen;
+    var tracks = project.tracks || [];
+    for (var ti = 0; ti < tracks.length; ti++) {
+      var steps = tracks[ti].steps || [];
+      for (var i = start; i < steps.length; i++) if (+steps[i] > 0) return true;
+    }
+    return false;
+  }
+
+  // 加小節時複製最後一小節。減少時直接裁掉（呼叫端決定要不要先問）。
+  function resizeBars(project, next) {
+    next = clampBars(next);
+    var barLen = stepsPerBar(project.meter, project.resolution);
+    var cur = projectBars(project);
+    if (next === cur) return project;
+    for (var ti = 0; ti < project.tracks.length; ti++) {
+      var t = project.tracks[ti];
+      if (!t.steps) t.steps = [];
+      if (next > cur) {
+        while (t.steps.length < cur * barLen) t.steps.push(0);
+        var last = t.steps.slice((cur - 1) * barLen, cur * barLen);
+        for (var b = cur; b < next; b++) {
+          for (var k = 0; k < barLen; k++) t.steps.push(last[k] || 0);
+        }
+      } else {
+        t.steps = t.steps.slice(0, next * barLen);
+      }
+    }
+    project.bars = next;
     return project;
   }
 
@@ -456,6 +602,8 @@ function upsertSlot(slots, entry, max) {
 
   var api = {
     STEPS: STEPS,
+    BARS_MAX: BARS_MAX,
+    BARS_DEFAULT: BARS_DEFAULT,
     BPM_MIN: BPM_MIN,
     BPM_MAX: BPM_MAX,
     MAX_TRACKS: MAX_TRACKS,
@@ -469,6 +617,13 @@ function upsertSlot(slots, entry, max) {
     stepsPerBar: stepsPerBar,
     beatStarts: beatStarts,
     stepCount: stepCount,
+    layoutSteps: layoutSteps,
+    clampBars: clampBars,
+    inferBars: inferBars,
+    resizeBars: resizeBars,
+    tailHasNotes: tailHasNotes,
+    soundColor: soundColor,
+    inkOn: inkOn,
     remapSteps: remapSteps,
     mapStepIndex: mapStepIndex,
     setGrid: setGrid,
