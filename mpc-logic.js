@@ -59,6 +59,94 @@
     return starts;
   }
 
+  function beatLengths(meter, resolution) {
+    var m = resolveMeter(meter);
+    var res = resolveResolution(resolution);
+    var per = res / m.unit;
+    var lens = [];
+    for (var i = 0; i < m.groups.length; i++) lens.push(m.groups[i] * per);
+    return lens;
+  }
+
+  // 一小節內要點亮的步。回傳 null 代表這個拍號／解析度用不到。
+  function presetMask(kind, meter, resolution) {
+    var barLen = stepsPerBar(meter, resolution);
+    var starts = beatStarts(meter, resolution);
+    var lens = beatLengths(meter, resolution);
+    var on = {};
+    function mark(i) { if (i >= 0 && i < barLen) on[i] = 1; }
+    if (kind === 'downbeat') mark(0);
+    else if (kind === 'beats') {
+      for (var i = 0; i < starts.length; i++) mark(starts[i]);
+    } else if (kind === 'offbeat') {
+      var any = false;
+      for (var j = 0; j < starts.length; j++) {
+        if (lens[j] % 2 === 0) { mark(starts[j] + lens[j] / 2); any = true; }
+      }
+      if (!any) return null;
+    } else if (kind === 'backbeat') {
+      if (resolveMeter(meter).unit !== 4 || starts.length < 2) return null;
+      mark(starts[1]);
+      if (starts.length >= 4) mark(starts[3]);
+    } else if (kind === 'eighths') {
+      var step8 = resolveResolution(resolution) / 8;
+      for (var e = 0; e < barLen; e += step8) mark(e);
+    } else if (kind === 'sixteenths') {
+      if (resolveResolution(resolution) < 16) return null;
+      var step16 = resolveResolution(resolution) / 16;
+      for (var s = 0; s < barLen; s += step16) mark(s);
+    } else return null;
+    var list = [];
+    for (var k in on) if (on.hasOwnProperty(k)) list.push(+k);
+    list.sort(function (a, b) { return a - b; });
+    return list;
+  }
+
+  function presetEnabled(kind, meter, resolution, bars) {
+    if (kind === 'clear' || kind === 'invert') return true;
+    if (kind === 'copybar') return clampBars(bars) >= 2;
+    return !!presetMask(kind, meter, resolution);
+  }
+
+  // 填拍是「加上」：原本有的音保留。清除、反轉、複製小節會改寫。不修改傳入的陣列。
+  function applyPreset(steps, kind, meter, resolution, bars) {
+    var barLen = stepsPerBar(meter, resolution);
+    var nBars = clampBars(bars);
+    var total = barLen * nBars;
+    var src = [];
+    for (var i = 0; i < total; i++) {
+      var v = steps && +steps[i];
+      if (!(v > 0)) v = 0;
+      if (v > 1) v = 1;
+      src.push(v);
+    }
+    if (kind === 'clear') {
+      for (var c = 0; c < total; c++) src[c] = 0;
+      return src;
+    }
+    if (kind === 'invert') {
+      for (var n = 0; n < total; n++) src[n] = src[n] > 0 ? 0 : 1;
+      return src;
+    }
+    if (kind === 'copybar') {
+      if (nBars < 2) return src;
+      var bar = src.slice(0, barLen);
+      for (var b = 1; b < nBars; b++) {
+        for (var j = 0; j < barLen; j++) src[b * barLen + j] = bar[j];
+      }
+      return src;
+    }
+    var mask = presetMask(kind, meter, resolution);
+    if (!mask) return src;
+    for (var barI = 0; barI < nBars; barI++) {
+      for (var m = 0; m < mask.length; m++) {
+        var idx = barI * barLen + mask[m];
+        if (!(src[idx] > 0)) src[idx] = 1;
+      }
+    }
+    return src;
+  }
+
   function clampBars(n) {
     n = Math.round(+n);
     if (!(n >= 1)) return 1;
@@ -616,6 +704,10 @@ function upsertSlot(slots, entry, max) {
     resolveResolution: resolveResolution,
     stepsPerBar: stepsPerBar,
     beatStarts: beatStarts,
+    beatLengths: beatLengths,
+    presetMask: presetMask,
+    presetEnabled: presetEnabled,
+    applyPreset: applyPreset,
     stepCount: stepCount,
     layoutSteps: layoutSteps,
     clampBars: clampBars,
