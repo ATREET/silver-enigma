@@ -65,6 +65,7 @@
   var follow = true;
   var paintDrag = null;
   var saveOpen = document.getElementById('saveOpen');
+  var grooveSel = document.getElementById('grooveSel');
   var saveSheet = document.getElementById('saveSheet');
   var saveClose = document.getElementById('saveClose');
   var slotName = document.getElementById('slotName');
@@ -440,8 +441,8 @@
     undoBtn.className = 'preset';
     undoBtn.id = 'undoPreset';
     undoBtn.textContent = '還原';
-    undoBtn.title = '還原上一個快速填入';
-    undoBtn.setAttribute('aria-label', '還原上一個快速填入');
+    undoBtn.title = '還原上一個快速填入或節奏預設';
+    undoBtn.setAttribute('aria-label', '還原上一個快速填入或節奏預設');
     presetRow.appendChild(undoBtn);
     presetRow.addEventListener('click', function (e) {
       var b = e.target.closest('button');
@@ -459,7 +460,9 @@
     for (var i = 0; i < buttons.length; i++) {
       var b = buttons[i];
       if (b.id === 'undoPreset') {
-        b.disabled = !(undoSnap && t && undoSnap.id === t.id && undoSnap.steps.length === t.steps.length);
+        var projectUndo = undoSnap && undoSnap.kind === 'project';
+        var stepUndo = undoSnap && t && undoSnap.id === t.id && undoSnap.steps && undoSnap.steps.length === t.steps.length;
+        b.disabled = !(projectUndo || stepUndo);
         b.style.background = '';
         b.style.color = '';
         continue;
@@ -487,6 +490,24 @@
 
   function undoPreset() {
     if (!undoSnap) return;
+    if (undoSnap.kind === 'project') {
+      var next = Logic.parseProject(undoSnap.data);
+      project.bpm = next.bpm;
+      project.meter = next.meter;
+      project.resolution = next.resolution;
+      project.bars = next.bars;
+      project.tracks = next.tracks;
+      project.seq = next.seq;
+      selectedId = project.tracks[0] ? project.tracks[0].id : null;
+      soundSel.dataset.kit = '';
+      undoSnap = null;
+      if (cursor.stepIndex >= Logic.stepCount(project)) cursor.stepIndex = 0;
+      if (playhead >= Logic.stepCount(project)) playhead = -1;
+      clampView();
+      changed();
+      paint();
+      return;
+    }
     var t = Logic.findTrack(project, undoSnap.id);
     if (!t || t.steps.length !== undoSnap.steps.length) { undoSnap = null; paintPresets(); return; }
     t.steps = undoSnap.steps.slice();
@@ -822,6 +843,14 @@
   buildKits();
   buildPads();
   buildPresets();
+  if (window.MpcGrooves) {
+    window.MpcGrooves.list.forEach(function (g) {
+      var o = document.createElement('option');
+      o.value = g.id;
+      o.textContent = g.name;
+      grooveSel.appendChild(o);
+    });
+  }
   Logic.METERS.forEach(function (m) {
     var o = document.createElement('option');
     o.value = m.id;
@@ -1055,6 +1084,51 @@
     if (idx >= 0) playPad(idx);
   });
 
+  function patternHasNotes(p) {
+    var tracks = p.tracks || [];
+    for (var i = 0; i < tracks.length; i++) {
+      var steps = tracks[i].steps || [];
+      for (var s = 0; s < steps.length; s++) if (+steps[s] > 0) return true;
+    }
+    return false;
+  }
+  function loadGroove(id) {
+    var g = null;
+    (window.MpcGrooves.list || []).forEach(function (item) { if (item.id === id) g = item; });
+    if (!g) return;
+    if (patternHasNotes(project) && !window.confirm('目前的節奏會被換成「' + g.name + '」，確定嗎？')) return;
+    undoSnap = { kind: 'project', data: Logic.serializeProject(project) };
+    var next = Logic.parseProject({
+      name: project.name,
+      bpm: g.bpm,
+      meter: g.meter,
+      resolution: g.resolution,
+      bars: g.bars,
+      tracks: g.tracks.map(function (t, i) {
+        return { id: 't' + (i + 1), name: t.name, kit: t.kit, sound: t.sound, volume: t.volume, mute: false, steps: t.steps.slice() };
+      })
+    });
+    project.bpm = next.bpm;
+    project.meter = next.meter;
+    project.resolution = next.resolution;
+    project.bars = next.bars;
+    project.tracks = next.tracks;
+    project.seq = next.seq;
+    selectedId = project.tracks[0] ? project.tracks[0].id : null;
+    soundSel.dataset.kit = '';
+    viewOrigin = 0;
+    if (cursor.stepIndex >= Logic.stepCount(project)) cursor.stepIndex = 0;
+    if (playhead >= Logic.stepCount(project)) playhead = -1;
+    clampView();
+    changed();
+    paint();
+    toast('已載入「' + g.name + '」');
+  }
+  grooveSel.addEventListener('change', function () {
+    var id = grooveSel.value;
+    grooveSel.value = '';
+    if (id) loadGroove(id);
+  });
   saveOpen.addEventListener('click', openSave);
   saveClose.addEventListener('click', closeSave);
   saveSheet.addEventListener('click', function (e) { if (e.target === saveSheet) closeSave(); });

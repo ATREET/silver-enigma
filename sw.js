@@ -1,4 +1,4 @@
-const CACHE = 'piano-v6';
+const CACHE = 'piano-v7';
 const ASSETS = [
   "./",
   "index.html",
@@ -6,6 +6,7 @@ const ASSETS = [
   "app.js",
   "chord.js",
   "mpc-logic.js",
+  "mpc-presets.js",
   "mpc-synth.js",
   "mpc.js",
   "manifest.webmanifest",
