@@ -21,6 +21,8 @@
 
 鼓墊、音軌左邊的色條，以及下面有音符的格子，用同一組莫蘭迪色，一種音色一種顏色。
 
+「節奏」選單可載入內建節奏（搖滾、流行、放克、嘻哈、R&B、迪斯可、雷鬼、巴薩諾瓦、爵士搖擺、華爾滋、六八慢歌、藍調）。會換掉目前的拍號、音符、小節數、速度與音軌；若已經有音符會先詢問。載入後可用「還原」回到載入前。
+
 快速填入作用在目前這條音軌的整段循環。小節首、每拍、反拍、2·4拍、每8分、每16分是「加上」，不會清掉本來就有的音。反拍是每拍正中間；格子對不到正中間（例如 6/8 用八分音符）就沒有這個鍵。2·4拍只給四分拍號。每16分要解析度至少到十六分音符。清除會清空這軌；反轉把有音和沒音對調；複製把第一小節貼到後面每一小節。還原回到按上一個快速鍵之前。按格子改節奏之後，還原就會取消。
 
 音軌模型：一條音軌 = 一種音色的一行步進（最多 8 條，疊在同一條循環上）。每條有自己的套鼓、音色、靜音與音量。鼓墊用來即時打目前這條音軌的套鼓；點步進格寫入這條音軌。套鼓有三組：原聲、電子、打擊。
@@ -35,8 +37,8 @@
 電腦鍵盤在 MPC 模式：`1`–`0`、`q` `w` `e` `r` `t` `y` 打 16 個鼓墊，空白鍵 = 鼓聲繼續／停止。
 
 ## 檔案
-- `index.html`、`style.css`、`app.js`（鋼琴）、`chord.js`（和弦辨識）、`mpc-logic.js`（節拍與存檔）、`mpc-synth.js`（鼓聲合成）、`mpc.js`（MPC 畫面）、`sw.js`（Service Worker）、`manifest.webmanifest`、`icons/`、`samples/`
-- 測試：`node --test tests/chord.test.js tests/mpc.test.js`
+- `index.html`、`style.css`、`app.js`（鋼琴）、`chord.js`（和弦辨識）、`mpc-logic.js`（節拍與存檔）、`mpc-presets.js`（節奏預設）、`mpc-synth.js`（鼓聲合成）、`mpc.js`（MPC 畫面）、`sw.js`（Service Worker）、`manifest.webmanifest`、`icons/`、`samples/`
+- 測試：`node --test tests/chord.test.js tests/mpc.test.js tests/grooves.test.js`
 - 無需建置步驟，任何靜態主機都可放（GitHub Pages、Netlify、Cloudflare Pages…）。必須是 HTTPS 才能註冊 Service Worker。
 
 ## 音色來源與授權
@@ -49,4 +51,4 @@
 MPC 鼓聲是這個專案自己用 Web Audio 合成的，沒有取用第三方取樣，因此沒有額外授權。鋼琴音量旋鈕只影響鋼琴；鼓有各自音軌音量。
 
 ## 更新程式後
-修改檔案後請把 `sw.js` 裡的 `CACHE` 版本號加一（目前是 `piano-v6`），手機上重新開啟 App 兩次即可拿到新版。GitHub Pages 由 `main` 分支的根目錄提供，不使用 Actions。
+修改檔案後請把 `sw.js` 裡的 `CACHE` 版本號加一（目前是 `piano-v7`），手機上重新開啟 App 兩次即可拿到新版。GitHub Pages 由 `main` 分支的根目錄提供，不使用 Actions。

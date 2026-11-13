@@ -86,6 +86,7 @@ body[data-mode="mpc"] #mpc{display:flex;flex:1;min-height:0;flex-direction:colum
 .step.barline.now{box-shadow:inset 3px 0 0 var(--line),inset 0 3px 0 var(--line),inset 0 -3px 0 var(--line)}
 .step:disabled{opacity:.35}
 #meterSel{max-width:none}
+#grooveSel{max-width:8.6em}
 #resSeg button{min-width:2.6em}
 #mpc select, #mpc input, #slotName{touch-action:manipulation}
 #mpc select{font:inherit;color:var(--fg);background:var(--btn);border:0;border-radius:8px;padding:6px 8px;max-width:28vw;min-height:32px}

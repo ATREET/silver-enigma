@@ -84,6 +84,12 @@
         <span class="cap">套鼓</span>
         <div class="seg" id="kitSeg" role="group" aria-label="套鼓"></div>
       </div>
+      <div class="grp">
+        <span class="cap">節奏</span>
+        <select id="grooveSel" aria-label="節奏預設" title="載入內建節奏。若目前已有音符會先詢問。">
+          <option value="">選擇…</option>
+        </select>
+      </div>
       <button type="button" id="saveOpen" class="btn">存檔</button>
     </div>
     <div id="mpcEdit">
@@ -160,6 +166,7 @@
 </div>
 <script src="chord.js"></script>
 <script src="mpc-logic.js"></script>
+<script src="mpc-presets.js"></script>
 <script src="mpc-synth.js"></script>
 <script src="app.js"></script>
 <script src="mpc.js"></script>
